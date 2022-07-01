@@ -11,6 +11,7 @@ from typing import Sequence, Optional, Iterator, Union
 
 from autograd.exceptions import InvalidTensorState, InvalidGradient
 from autograd.types import GradFnT, TensorableT, ShapeT
+from autograd.utils import are_broadcastable
 
 
 @dataclasses.dataclass(frozen=True)
@@ -68,6 +69,17 @@ class Tensor:
             Tensor: A new tensor containing element-wise sum.
         """
         return self.add(other)
+
+    def __mul__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
+        """Multiplies two tensors element-wise and returns the result.
+
+        Args:
+            other (Union[Tensor, TensorableT]): Tensor to multiply with.
+
+        Returns:
+            Tensor: A new tensor containing element-wise multiplication result.
+        """
+        return self.mul(other)
 
     @property
     def data(self) -> np.ndarray:
@@ -184,6 +196,17 @@ class Tensor:
         """
         return add(self, other)
 
+    def mul(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
+        """Multiplies two tensors element-wise and returns the result.
+
+        Args:
+            other (Union[Tensor, TensorableT]): Tensor to multiply with.
+
+        Returns:
+            Tensor: A new tensor containing element-wise multiplication result.
+        """
+        return mul(self, other)
+
     def _iter_dependencies_if_exist(self) -> Iterator[Dependency]:
         if self.dependencies:
             yield from iter(self.dependencies)
@@ -267,6 +290,32 @@ def add(tensor_1: Tensor, tensor_2: Tensor) -> Tensor:
     return Tensor(ret_data, requires_grad, dependencies)
 
 
+def mul(multiplicand: Tensor, multiplier: Tensor):
+    """Multiplies two tensors in an element-wise fashion and returns the result.
+
+    Args:
+        multiplicand (Tensor): Multiplicand.
+        multiplier (Tensor): Multiplier.
+
+    Returns:
+        Tensor: Element-wise product of the two tensors.
+    """
+    ret_data = multiplicand.data * multiplier.data
+
+    requires_grad = multiplicand.requires_grad or multiplier.requires_grad
+    dependencies = [] if requires_grad else None
+
+    if multiplicand.requires_grad:
+        grad_fn_1 = _build_mul_grad_fn(multiplicand, multiplier)
+        dependencies.append(Dependency(multiplicand, grad_fn_1))
+
+    if multiplier.requires_grad:
+        grad_fn_2 = _build_mul_grad_fn(multiplier, multiplicand)
+        dependencies.append(Dependency(multiplier, grad_fn_2))
+
+    return Tensor(ret_data, requires_grad, dependencies)
+
+
 def _build_reduce_sum_grad_fn(tensor: Tensor) -> GradFnT:
     def _grad_fn(grad: np.ndarray) -> np.ndarray:
         """Computes a gradient with respect to the specified tensor as part of
@@ -307,24 +356,79 @@ def _build_add_grad_fn(tensor: Tensor) -> GradFnT:
         Returns:
             np.ndarray: Gradient with respect to the specified tensor.
         """
-        # Compute the number of prepended dimensions.
-        n_dims_prepended = grad.ndim - tensor.ndim
-
-        if n_dims_prepended > 0:
-            # Sum across the prepended dimensions.
-            grad_accum = grad.sum(axis=tuple(range(n_dims_prepended)))
-        else:
-            grad_accum = grad
-
-        # Broadcasting may happen also within the tensor. For example,
-        # assume shapes (3, 2, 5, 4) and (2, 1, 4). The broadcasting first
-        # adjusts the number of dimensions, thus (2, 1, 4) --> (1, 2, 1, 4).
-        # Then, during expansion, any dimension equal to one is broadcasted,
-        # so (1, 2, 1, 4) --> (1, 2, 5, 4) --> (3, 2, 5, 4).
-        for axis, dim in enumerate(tensor.shape):
-            if dim == 1:
-                grad_accum = grad_accum.sum(axis=axis, keepdims=True)
-
-        return grad_accum
+        # In the case of addition, just simple gradient propagation is needed.
+        return _accum_grad_after_broadcast_if_needed(tensor, grad)
 
     return _grad_fn
+
+
+def _build_mul_grad_fn(target_tensor: Tensor, other_tensor: Tensor) -> GradFnT:
+    def _grad_fn(grad: np.ndarray) -> np.ndarray:
+        """Computes the gradient with respect to the target_tensor specified in
+        the outer scope as part of the mul operation. It handles broadcasting by
+        magnifying the contribution of individual elements along broadcasted
+        dimensions.
+
+        Args:
+            grad (np.ndarray): Upstream gradient.
+
+        Returns:
+            np.ndarray: Gradient with respect to the target_tensor.
+        """
+        # If z = x * y, then dz/dx = y and dz/dy = x. This is the reason why we
+        # specifically consider target and the "other" tensor. Target is the one
+        # with respect to which we are computing the gradient.
+        grad_curr = grad * other_tensor.data
+
+        return _accum_grad_after_broadcast_if_needed(target_tensor, grad_curr)
+
+    return _grad_fn
+
+
+def _accum_grad_after_broadcast_if_needed(
+    tensor: Tensor, grad: np.ndarray
+) -> np.ndarray:
+    """Accumulates gradients if broadcasting occurred, which is automatically
+    infererred from the shape of tensor and the gradient. The broadcasting
+    magnifies element contribution within the computation as it may end up being
+    copied to multiple other dimensions. The function is useful for computing
+    gradients. Tensor shape has to be broadcastable to gradient shape.
+
+    Args:
+        tensor (Tensor): Tensor that was part of the computation with respect to
+            which we want to compute the gradient.
+        grad (np.ndarray): Upstream gradient of the computation.
+    
+    Raises:
+        InvalidGradient: Raised is the tensor and gradient shapes are not
+            broadcastable.
+
+    Returns:
+        np.ndarray: Gradient with respect to the specified tensor adjusted by
+        the effect of broadcasting if it occurred.
+    """
+    if not are_broadcastable(tensor.shape, grad.shape):
+        raise InvalidGradient(
+            "upstream gradient is not broadcastable to the tensor with respect "
+            "to which the current gradient is being computed"
+        )
+
+    # Compute the number of prepended dimensions.
+    n_dims_prepended = grad.ndim - tensor.ndim
+
+    if n_dims_prepended > 0:
+        # Sum across the prepended dimensions.
+        grad_accum = grad.sum(axis=tuple(range(n_dims_prepended)))
+    else:
+        grad_accum = grad
+
+    # Broadcasting may happen also within the tensor. For example,
+    # assume shapes (3, 2, 5, 4) and (2, 1, 4). The broadcasting first
+    # adjusts the number of dimensions, thus (2, 1, 4) --> (1, 2, 1, 4).
+    # Then, during expansion, any dimension equal to one is broadcasted,
+    # so (1, 2, 1, 4) --> (1, 2, 5, 4) --> (3, 2, 5, 4).
+    for axis, dim in enumerate(tensor.shape):
+        if dim == 1:
+            grad_accum = grad_accum.sum(axis=axis, keepdims=True)
+
+    return grad_accum

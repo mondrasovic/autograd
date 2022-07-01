@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Module for testing tensor state-related methods.
+"""
+
 from unittest import main, TestCase
 
 import numpy as np
