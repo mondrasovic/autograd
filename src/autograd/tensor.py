@@ -26,6 +26,18 @@ class Dependency:
     grad_fn: GradFnT
 
 
+def assure_tensor(data: TensorableT) -> 'Tensor':
+    """Assures that the data is indeed a Tensor instance.
+
+    Args:
+        data (TensorableT): Data to use for instantiating a tensor, if needed.
+
+    Returns:
+        Tensor: Tensor containing the provided data.
+    """
+    return data if isinstance(data, Tensor) else Tensor(data)
+
+
 class Tensor:
     """Elemental class representing a basic tensor.
     """
@@ -69,7 +81,7 @@ class Tensor:
         Returns:
             Tensor: A new tensor containing element-wise sum.
         """
-        return add(self, other)
+        return add(self, assure_tensor(other))
 
     def __radd__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
         """Adds two tensors element-wise and returns the result. This tensor is
@@ -81,7 +93,7 @@ class Tensor:
         Returns:
             Tensor: A new tensor containing element-wise sum.
         """
-        return add(other, self)
+        return add(assure_tensor(other), self)
 
     def __sub__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
         """Subtracts two tensors in an element-wise fashion and returns the
@@ -94,7 +106,7 @@ class Tensor:
         Returns:
             Tensor: Element-wise difference of the two tensors.
         """
-        return sub(self, other)
+        return sub(self, assure_tensor(other))
 
     def __rsub__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
         """Subtracts two tensors in an element-wise fashion and returns the
@@ -107,7 +119,7 @@ class Tensor:
         Returns:
             Tensor: Element-wise difference of the two tensors.
         """
-        return sub(other, self)
+        return sub(assure_tensor(other), self)
 
     def __mul__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
         """Multiplies two tensors element-wise and returns the result. This
@@ -120,7 +132,7 @@ class Tensor:
         Returns:
             Tensor: A new tensor containing element-wise multiplication result.
         """
-        return mul(self, other)
+        return mul(self, assure_tensor(other))
 
     def __rmul__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
         """Multiplies two tensors element-wise and returns the result. This
@@ -133,7 +145,7 @@ class Tensor:
         Returns:
             Tensor: A new tensor containing element-wise multiplication result.
         """
-        return mul(other, self)
+        return mul(assure_tensor(other), self)
 
     def __neg__(self) -> 'Tensor':
         """Negates the tensor by computing '-tensor' (swapping a sign) for
@@ -143,6 +155,21 @@ class Tensor:
             Tensor: Tensor with opposite signs at each element.
         """
         return neg(self)
+
+    def __matmul__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
+        """Performs matrix multiplication on two tensors where this tensor
+        stands for the multiplicand. Shapes of both tensors need to conform to
+        the rules of matrix multiplication. So, if multiplicand has shape (M, K)
+        and multiplier has shape (K, N), then the result is of shape (M, N).
+        Beware that matrix multiplication is not commutative in general.
+
+        Args:
+            multiplier (Tensor): Multiplier. Second tensor of shape (K, N).
+
+        Returns:
+            Tensor: Tensor of shape (M, N) resulting from matrix multiplication.
+        """
+        return matmul(self, assure_tensor(other))
 
     @property
     def data(self) -> np.ndarray:
@@ -291,6 +318,21 @@ class Tensor:
         """
         return neg(self)
 
+    def matmul(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
+        """Performs matrix multiplication on two tensors where this tensor
+        stands for the multiplicand. Shapes of both tensors need to conform to
+        the rules of matrix multiplication. So, if multiplicand has shape (M, K)
+        and multiplier has shape (K, N), then the result is of shape (M, N).
+        Beware that matrix multiplication is not commutative in general.
+
+        Args:
+            multiplier (Tensor): Multiplier. Second tensor of shape (K, N).
+
+        Returns:
+            Tensor: Tensor of shape (M, N) resulting from matrix multiplication.
+        """
+        return matmul(self, assure_tensor(other))
+
     def _iter_dependencies_if_exist(self) -> Iterator[Dependency]:
         if self.dependencies:
             yield from iter(self.dependencies)
@@ -398,7 +440,6 @@ def mul(multiplicand: Tensor, multiplier: Tensor):
         Tensor: Element-wise product of the two tensors.
     """
     ret_data = multiplicand.data * multiplier.data
-
     requires_grad = multiplicand.requires_grad or multiplier.requires_grad
     dependencies = [] if requires_grad else None
 
@@ -427,22 +468,78 @@ def neg(tensor: Tensor) -> Tensor:
     requires_grad = tensor.requires_grad
 
     if requires_grad:
-
-        def _grad_fn(grad: np.ndarray) -> np.ndarray:
-            """Computes a gradient with respect to a negated tensor.
-
-            Args:
-                grad (np.ndarray): Upstream gradient.
-
-            Returns:
-                np.ndarray: Gradient with respect to a negated tensor.
-            """
-            # y = -x --> dy/dx = -1
-            return -grad
-
-        dependencies = [Dependency(tensor, _grad_fn)]
+        dependencies = [Dependency(tensor, _neg_grad_fn)]
     else:
         dependencies = None
+
+    return Tensor(ret_data, requires_grad, dependencies)
+
+
+def matmul(multiplicand: Tensor, multiplier: Tensor) -> Tensor:
+    """Performs matrix multiplication on two tensors. Shapes of both tensors
+    need to conform to the rules of matrix multiplication. So, if multiplicand
+    has shape (M, K) and multiplier has shape (K, N), then the result is of
+    shape (M, N). Beware that matrix multiplication is not commutative in
+    general.
+
+    Args:
+        multiplicand (Tensor): Multiplicand. First tensor of shape (M, K).
+        multiplier (Tensor): Multiplier. Second tensor of shape (K, N).
+
+    Returns:
+        Tensor: Tensor of shape (M, N) resulting from matrix multiplication.
+    """
+    ret_data = np.matmul(multiplicand.data, multiplier.data)
+    requires_grad = multiplicand.requires_grad or multiplier.requires_grad
+    dependencies = [] if requires_grad else None
+
+    if multiplicand.requires_grad:
+
+        def _grad_fn_1(grad: np.ndarray) -> np.ndarray:
+            """Computes gradient with respect to a multiplicand as part of
+            matrix multiplication operation with
+            shapes (M, K) @ (K, N) = (M, N).
+
+            Args:
+                grad (np.ndarray): Upstream gradient of shape (M, N).
+
+            Returns:
+                np.ndarray: Gradient with respect to the multiplicand of shape
+                    (M, K).
+            """
+            # (M, K) @ (K, N) = (M, N), where @ denotes matrix multiplication.
+            # A good rule of thumb is that there is only one way to obtain the
+            # desired shapes from these matrices. To compute the gradient with
+            # respect to multiplicand of shape (M, K) using the upstream
+            # gradient (M, N), we have
+            #    (M, K) = (M, N) @ (K, N)^T = (M, N) @ (N, K).
+            return np.matmul(grad, np.transpose(multiplier.data))
+
+        dependencies.append(Dependency(multiplicand, _grad_fn_1))
+
+    if multiplier.requires_grad:
+
+        def _grad_fn_2(grad: np.ndarray) -> np.ndarray:
+            """Computes gradient with respect to a multiplier as part of
+            matrix multiplication operation with
+            shapes (M, K) @ (K, N) = (M, N).
+
+            Args:
+                grad (np.ndarray): Upstream gradient of shape (M, N).
+
+            Returns:
+                np.ndarray: Gradient with respect to the multiplicand of shape
+                    (K, N).
+            """
+            # (M, K) @ (K, N) = (M, N), where @ denotes matrix multiplication.
+            # A good rule of thumb is that there is only one way to obtain the
+            # desired shapes from these matrices. To compute the gradient with
+            # respect to multiplier of shape (K, N) using the upstream
+            # gradient (M, N), we have
+            #    (K, N) = (M, K)^T @ (M, N) = (K, M) @ (M, N).
+            return np.matmul(np.transpose(multiplicand.data), grad)
+
+        dependencies.append(Dependency(multiplier, _grad_fn_2))
 
     return Tensor(ret_data, requires_grad, dependencies)
 
@@ -514,6 +611,19 @@ def _build_mul_grad_fn(target_tensor: Tensor, other_tensor: Tensor) -> GradFnT:
         return _accum_grad_after_broadcast_if_needed(target_tensor, grad_curr)
 
     return _grad_fn
+
+
+def _neg_grad_fn(grad: np.ndarray) -> np.ndarray:
+    """Computes a gradient with respect to a negated tensor.
+
+    Args:
+        grad (np.ndarray): Upstream gradient.
+
+    Returns:
+        np.ndarray: Gradient with respect to a negated tensor.
+    """
+    # y = -x --> dy/dx = -1
+    return -grad
 
 
 def _accum_grad_after_broadcast_if_needed(

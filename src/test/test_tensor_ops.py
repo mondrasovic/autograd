@@ -8,7 +8,7 @@ from unittest import main, TestCase
 
 import numpy as np
 
-from autograd.tensor import Tensor, add, mul, neg, sub
+from autograd.tensor import Tensor, add, mul, neg, sub, matmul
 
 
 class _TensorTest(TestCase, abc.ABC):
@@ -90,24 +90,24 @@ class TestTensorSum(_TensorTest):
 
 class TestTensorAdd(_TensorTest):
     def test_add_one_dimensional_no_broadcast(self):
-        tensor_1 = Tensor([1, 2, 3], requires_grad=True)
-        tensor_2 = Tensor([4, 5, 6], requires_grad=True)
+        tensor_1 = Tensor([1, 2, 3])
+        tensor_2 = Tensor([4, 5, 6])
 
         expected_res = [5, 7, 9]
 
         self._test_add_operation(tensor_1, tensor_2, expected_res)
 
     def test_add_multi_dimensional_no_broadcast(self):
-        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]], requires_grad=True)
-        tensor_2 = Tensor([[4, 5, 6], [7, 8, 9]], requires_grad=True)
+        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]])
+        tensor_2 = Tensor([[4, 5, 6], [7, 8, 9]])
 
         expected_res = [[5, 7, 9], [11, 13, 15]]
 
         self._test_add_operation(tensor_1, tensor_2, expected_res)
 
     def test_add_multi_dimensional_with_broadcast(self):
-        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]], requires_grad=True)
-        tensor_2 = Tensor([4, 5, 6], requires_grad=True)
+        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]])
+        tensor_2 = Tensor([4, 5, 6])
 
         expected_res = [[5, 7, 9], [8, 10, 12]]
 
@@ -171,24 +171,24 @@ class TestTensorAdd(_TensorTest):
 
 class TestTensorSub(_TensorTest):
     def test_sub_one_dimensional_no_broadcast(self):
-        tensor_1 = Tensor([1, 2, 3], requires_grad=True)
-        tensor_2 = Tensor([4, 5, 6], requires_grad=True)
+        tensor_1 = Tensor([1, 2, 3])
+        tensor_2 = Tensor([4, 5, 6])
 
         expected_res = [-3, -3, -3]
 
         self._test_sub_operation(tensor_1, tensor_2, expected_res)
 
     def test_sub_multi_dimensional_no_broadcast(self):
-        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]], requires_grad=True)
-        tensor_2 = Tensor([[6, 5, 4], [9, 8, 7]], requires_grad=True)
+        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]])
+        tensor_2 = Tensor([[6, 5, 4], [9, 8, 7]])
 
         expected_res = [[-5, -3, -1], [-5, -3, -1]]
 
         self._test_sub_operation(tensor_1, tensor_2, expected_res)
 
     def test_sub_multi_dimensional_with_broadcast(self):
-        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]], requires_grad=True)
-        tensor_2 = Tensor([4, 5, 6], requires_grad=True)
+        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]])
+        tensor_2 = Tensor([4, 5, 6])
 
         expected_res = [[-3, -3, -3], [0, 0, 0]]
 
@@ -254,25 +254,25 @@ class TestTensorSub(_TensorTest):
 
 
 class TestTensorMul(_TensorTest):
-    def test_mul_func_one_dimensional_no_broadcast(self):
-        tensor_1 = Tensor([1, 2, 3], requires_grad=True)
-        tensor_2 = Tensor([4, 5, 6], requires_grad=True)
+    def test_mul_one_dimensional_no_broadcast(self):
+        tensor_1 = Tensor([1, 2, 3])
+        tensor_2 = Tensor([4, 5, 6])
 
         expected_res = [4, 10, 18]
 
         self._test_mul_operation(tensor_1, tensor_2, expected_res)
 
-    def test_mul_func_multi_dimensional_no_broadcast(self):
-        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]], requires_grad=True)
-        tensor_2 = Tensor([[4, 5, 6], [7, 8, 9]], requires_grad=True)
+    def test_mul_multi_dimensional_no_broadcast(self):
+        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]])
+        tensor_2 = Tensor([[4, 5, 6], [7, 8, 9]])
 
         expected_res = [[4, 10, 18], [28, 40, 54]]
 
         self._test_mul_operation(tensor_1, tensor_2, expected_res)
 
-    def test_mul_func_multi_dimensional_with_broadcast(self):
-        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]], requires_grad=True)
-        tensor_2 = Tensor([4, 5, 6], requires_grad=True)
+    def test_mul_multi_dimensional_with_broadcast(self):
+        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]])
+        tensor_2 = Tensor([4, 5, 6])
 
         expected_res = [[4, 10, 18], [16, 25, 36]]
 
@@ -337,6 +337,59 @@ class TestTensorMul(_TensorTest):
         self._test_binary_operation(
             tensor_1, tensor_2, expected_res, mul, tensor_1.mul,
             tensor_1.__mul__
+        )
+
+
+class TestTensorMatMul(_TensorTest):
+    def test_matmul_simple(self):
+        tensor_1 = Tensor([[1, 2, 3]])  # Shape: (1, 3)
+        tensor_2 = Tensor([[4], [5], [6]])  # Shape: (3, 1)
+
+        expected_res = [32]  # Shape (1,)
+
+        self._test_matmul_operation(tensor_1, tensor_2, expected_res)
+
+    def test_matmul_complex_shapes_MN_NM(self):
+        tensor_1 = Tensor([[1, 2, 3], [4, 5, 6]])  # Shape: (2, 3)
+        tensor_2 = Tensor([[4, 5], [6, 7], [8, 9]])  # Shape: (3, 2)
+
+        expected_res = [[40, 46], [94, 109]]  # Shape: (2, 2)
+
+        self._test_matmul_operation(tensor_1, tensor_2, expected_res)
+
+    def test_matmul_shapes_MK_KN(self):
+        tensor_1 = Tensor([[1, 2, 3, 4], [5, 6, 7, 8]])  # Shape: (2, 4)
+        tensor_2 = Tensor(
+            [[1, 2, 3], [3, 2, 1], [2, 1, 3], [3, 1, 2]]
+        )  # Shape: (4, 3)
+
+        expected_res = [[25, 13, 22], [61, 37, 58]]  # Shape: (2, 3)
+
+        self._test_matmul_operation(tensor_1, tensor_2, expected_res)
+
+    def test_matmul_backward(self):
+        tensor_1 = Tensor(
+            [[1, 2, 3, 4], [5, 6, 7, 8]], requires_grad=True
+        )  # Shape: (2, 4)
+        tensor_2 = Tensor(
+            [[1, 2, 3], [3, 2, 1], [2, 1, 3], [3, 1, 2]], requires_grad=True
+        )  # Shape: (4, 3)
+
+        upstream_grad = [[1, 1, 1], [1, 1, 1]]
+
+        res = tensor_1 @ tensor_2
+        res.backward(upstream_grad)
+
+        grad_1 = [[6, 6, 6, 6], [6, 6, 6, 6]]
+        grad_2 = [[6, 6, 6], [8, 8, 8], [10, 10, 10], [12, 12, 12]]
+
+        self._test_values_equality(tensor_1.grad, grad_1)
+        self._test_values_equality(tensor_2.grad, grad_2)
+
+    def _test_matmul_operation(self, tensor_1, tensor_2, expected_res):
+        self._test_binary_operation(
+            tensor_1, tensor_2, expected_res, matmul, tensor_1.matmul,
+            tensor_1.__matmul__
         )
 
 
