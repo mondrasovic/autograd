@@ -89,8 +89,7 @@ class Tensor:
         i.e., 'self - other'.
 
         Args:
-            tensor_1 (Tensor): Minuend.
-            tensor_2 (Tensor): Subtrahend.
+            other (Tensor): Subtrahend.
 
         Returns:
             Tensor: Element-wise difference of the two tensors.
@@ -103,8 +102,7 @@ class Tensor:
         i.e., 'other - self'.
 
         Args:
-            tensor_1 (Tensor): Minuend.
-            tensor_2 (Tensor): Subtrahend.
+            other (Tensor): Minuend.
 
         Returns:
             Tensor: Element-wise difference of the two tensors.
@@ -266,8 +264,7 @@ class Tensor:
         result.
 
         Args:
-            tensor_1 (Tensor): Minuend.
-            tensor_2 (Tensor): Subtrahend.
+            other (Tensor): Subtrahend.
 
         Returns:
             Tensor: Element-wise difference of the two tensors.
@@ -324,12 +321,12 @@ def reduce_sum(tensor: Tensor) -> Tensor:
     return Tensor(ret_data, requires_grad, dependencies)
 
 
-def add(tensor_1: Tensor, tensor_2: Tensor) -> Tensor:
+def add(addend_1: Tensor, addend_2: Tensor) -> Tensor:
     """Adds two tensors in an element-wise fashion and returns the result.
 
     Args:
-        tensor_1 (Tensor): First addend.
-        tensor_2 (Tensor): Second addend.
+        addend_1 (Tensor): First addend.
+        addend_2 (Tensor): Second addend.
 
     Returns:
         Tensor: Element-wise sum of the two tensors.
@@ -359,35 +356,35 @@ def add(tensor_1: Tensor, tensor_2: Tensor) -> Tensor:
     # This is important when computing gradients. If broadcasting happens, it
     # has to be taken into consideration as the influence of a broadcasted
     # element is magnified.
-    ret_data = tensor_1.data + tensor_2.data
+    ret_data = addend_1.data + addend_2.data
 
     # If at least one of the tensors requires gradient, then the output needs to
     # propagate this property down the computational graph.
-    requires_grad = tensor_1.requires_grad or tensor_2.requires_grad
+    requires_grad = addend_1.requires_grad or addend_2.requires_grad
     dependencies = [] if requires_grad else None
 
-    if tensor_1.requires_grad:
-        grad_fn_1 = _build_add_grad_fn(tensor_1)
-        dependencies.append(Dependency(tensor_1, grad_fn_1))
+    if addend_1.requires_grad:
+        grad_fn_1 = _build_add_grad_fn(addend_1)
+        dependencies.append(Dependency(addend_1, grad_fn_1))
 
-    if tensor_2.requires_grad:
-        grad_fn_2 = _build_add_grad_fn(tensor_2)
-        dependencies.append(Dependency(tensor_2, grad_fn_2))
+    if addend_2.requires_grad:
+        grad_fn_2 = _build_add_grad_fn(addend_2)
+        dependencies.append(Dependency(addend_2, grad_fn_2))
 
     return Tensor(ret_data, requires_grad, dependencies)
 
 
-def sub(tensor_1: Tensor, tensor_2: Tensor) -> Tensor:
+def sub(minuend: Tensor, subtrahend: Tensor) -> Tensor:
     """Subtracts two tensors in an element-wise fashion and returns the result.
 
     Args:
-        tensor_1 (Tensor): Minuend.
-        tensor_2 (Tensor): Subtrahend.
+        minuend (Tensor): Minuend.
+        subtrahend (Tensor): Subtrahend.
 
     Returns:
         Tensor: Element-wise difference of the two tensors.
     """
-    return add(tensor_1, neg(tensor_2))
+    return add(minuend, neg(subtrahend))
 
 
 def mul(multiplicand: Tensor, multiplier: Tensor):
