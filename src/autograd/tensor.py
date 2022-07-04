@@ -60,7 +60,8 @@ class Tensor:
         return len(self.data)
 
     def __add__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
-        """Adds two tensors element-wise and returns the result.
+        """Adds two tensors element-wise and returns the result. This tensor is
+        the first operand, the other is the second, i.e., 'self + other'.
 
         Args:
             other (Union['Tensor', TensorableT]): Tensor to be added.
@@ -68,10 +69,52 @@ class Tensor:
         Returns:
             Tensor: A new tensor containing element-wise sum.
         """
-        return self.add(other)
+        return add(self, other)
+
+    def __radd__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
+        """Adds two tensors element-wise and returns the result. This tensor is
+        the second operand, the other is the first, i.e., 'other + self'.
+
+        Args:
+            other (Union['Tensor', TensorableT]): Tensor to be added.
+
+        Returns:
+            Tensor: A new tensor containing element-wise sum.
+        """
+        return add(other, self)
+
+    def __sub__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
+        """Subtracts two tensors in an element-wise fashion and returns the
+        result. This tensor is the first operator, the other is the second,
+        i.e., 'self - other'.
+
+        Args:
+            tensor_1 (Tensor): Minuend.
+            tensor_2 (Tensor): Subtrahend.
+
+        Returns:
+            Tensor: Element-wise difference of the two tensors.
+        """
+        return sub(self, other)
+
+    def __rsub__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
+        """Subtracts two tensors in an element-wise fashion and returns the
+        result. This tensor is the second operator, the other is the first,
+        i.e., 'other - self'.
+
+        Args:
+            tensor_1 (Tensor): Minuend.
+            tensor_2 (Tensor): Subtrahend.
+
+        Returns:
+            Tensor: Element-wise difference of the two tensors.
+        """
+        return sub(other, self)
 
     def __mul__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
-        """Multiplies two tensors element-wise and returns the result.
+        """Multiplies two tensors element-wise and returns the result. This
+        tensor is the first operand, the other is the second,
+        i.e., 'self * other'.
 
         Args:
             other (Union[Tensor, TensorableT]): Tensor to multiply with.
@@ -79,7 +122,29 @@ class Tensor:
         Returns:
             Tensor: A new tensor containing element-wise multiplication result.
         """
-        return self.mul(other)
+        return mul(self, other)
+
+    def __rmul__(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
+        """Multiplies two tensors element-wise and returns the result. This
+        tensor is the second operand, the other is the first,
+        i.e., 'other * self'.
+
+        Args:
+            other (Union[Tensor, TensorableT]): Tensor to multiply with.
+
+        Returns:
+            Tensor: A new tensor containing element-wise multiplication result.
+        """
+        return mul(other, self)
+
+    def __neg__(self) -> 'Tensor':
+        """Negates the tensor by computing '-tensor' (swapping a sign) for
+        each element and returns the result.
+
+        Returns:
+            Tensor: Tensor with opposite signs at each element.
+        """
+        return neg(self)
 
     @property
     def data(self) -> np.ndarray:
@@ -196,6 +261,19 @@ class Tensor:
         """
         return add(self, other)
 
+    def sub(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
+        """Subtracts two tensors in an element-wise fashion and returns the
+        result.
+
+        Args:
+            tensor_1 (Tensor): Minuend.
+            tensor_2 (Tensor): Subtrahend.
+
+        Returns:
+            Tensor: Element-wise difference of the two tensors.
+        """
+        return sub(self, other)
+
     def mul(self, other: Union['Tensor', TensorableT]) -> 'Tensor':
         """Multiplies two tensors element-wise and returns the result.
 
@@ -206,6 +284,15 @@ class Tensor:
             Tensor: A new tensor containing element-wise multiplication result.
         """
         return mul(self, other)
+
+    def neg(self) -> 'Tensor':
+        """Negates the tensor by computing '-tensor' (swapping a sign) for
+        each element and returns the result.
+
+        Returns:
+            Tensor: Tensor with opposite signs at each element.
+        """
+        return neg(self)
 
     def _iter_dependencies_if_exist(self) -> Iterator[Dependency]:
         if self.dependencies:
@@ -290,6 +377,19 @@ def add(tensor_1: Tensor, tensor_2: Tensor) -> Tensor:
     return Tensor(ret_data, requires_grad, dependencies)
 
 
+def sub(tensor_1: Tensor, tensor_2: Tensor) -> Tensor:
+    """Subtracts two tensors in an element-wise fashion and returns the result.
+
+    Args:
+        tensor_1 (Tensor): Minuend.
+        tensor_2 (Tensor): Subtrahend.
+
+    Returns:
+        Tensor: Element-wise difference of the two tensors.
+    """
+    return add(tensor_1, neg(tensor_2))
+
+
 def mul(multiplicand: Tensor, multiplier: Tensor):
     """Multiplies two tensors in an element-wise fashion and returns the result.
 
@@ -312,6 +412,40 @@ def mul(multiplicand: Tensor, multiplier: Tensor):
     if multiplier.requires_grad:
         grad_fn_2 = _build_mul_grad_fn(multiplier, multiplicand)
         dependencies.append(Dependency(multiplier, grad_fn_2))
+
+    return Tensor(ret_data, requires_grad, dependencies)
+
+
+def neg(tensor: Tensor) -> Tensor:
+    """Negates the tensor by computing '-tensor' (swapping a sign) for
+    each element and returns the result.
+
+    Args:
+        tensor (Tensor): Tensor to be negated.
+
+    Returns:
+        Tensor: Tensor with opposite signs at each element.
+    """
+    ret_data = -tensor.data
+    requires_grad = tensor.requires_grad
+
+    if requires_grad:
+
+        def _grad_fn(grad: np.ndarray) -> np.ndarray:
+            """Computes a gradient with respect to a negated tensor.
+
+            Args:
+                grad (np.ndarray): Upstream gradient.
+
+            Returns:
+                np.ndarray: Gradient with respect to a negated tensor.
+            """
+            # y = -x --> dy/dx = -1
+            return -grad
+
+        dependencies = [Dependency(tensor, _grad_fn)]
+    else:
+        dependencies = None
 
     return Tensor(ret_data, requires_grad, dependencies)
 
